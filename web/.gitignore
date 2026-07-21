@@ -1,0 +1,30 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.eslintcache
+report.html
+vite.config.*.timestamp*
+
+yarn.lock
+npm-debug.log*
+.pnpm-error.log*
+.pnpm-debug.log
+tests/**/coverage/
+
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+tsconfig.tsbuildinfo
+
+# vue-tsc 构建期产生的临时产物（与源码同目录，源码为 .ts/.tsx）
+src/**/*.js
+src/**/*.js.map
+src/**/*.jsx
+src/**/*.jsx.map
+# 例外：iconfont.js 是 main.ts 引入的真实源码（图标字体运行库），必须入库
+!src/assets/iconfont/iconfont.js

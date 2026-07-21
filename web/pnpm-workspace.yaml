@@ -1,0 +1,12 @@
+packages:
+  - "."
+
+pnpm:
+  # 允许这些依赖执行安装期构建脚本（esbuild 需要生成本地二进制）
+  onlyBuiltDependencies:
+    - esbuild
+    - "@parcel/watcher"
+    - vue-demi
+  # 允许已弃用版本的 vue（peer 兼容）
+  allowedDeprecatedVersions:
+    vue: "*"

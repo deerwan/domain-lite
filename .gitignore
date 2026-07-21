@@ -1,0 +1,34 @@
+# ---- 编译产物（Go 二进制）----
+/domain-lite
+
+# ---- 数据库与运行时数据（SQLite）----
+*.db
+*.db-journal
+/data/
+
+# ---- 日志 ----
+*.log
+/domain-lite.log
+
+# ---- 前端与 embed 构建产物 ----
+# web/dist 由 pnpm build 生成，并 cp 进 internal/static/dist 由 Go embed 打包
+/web/dist/
+/internal/static/dist/**
+# 保留占位文件，使 Go embed 在本地（dist 为空时）仍可编译
+# 注意：必须忽略目录内容(dist/**)而非整个目录(dist/)，否则无法反忽略其中的 .gitkeep
+!/internal/static/dist/.gitkeep
+/web/node_modules/
+# web/build 下由 IDE / tsc 误生成的编译产物（源码为 .ts，vite/esbuild 直接处理）
+/web/build/*.js
+/web/build/*.js.map
+
+# ---- 环境变量 ----
+# 本地私有/覆盖配置忽略；.env.*（如 .env.development/.env.production/.env.staging）为前端公开 VITE_ 配置，允许入库
+.env
+.env.local
+.env.*.local
+
+# ---- 操作系统 / 编辑器 ----
+.DS_Store
+.idea/
+.vscode/

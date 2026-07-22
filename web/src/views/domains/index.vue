@@ -8,7 +8,7 @@
           <el-button :loading="enriching" @click="enrichWhois">
             刷新到期信息
           </el-button>
-          <el-button type="primary" :loading="loading" @click="load">
+          <el-button type="primary" :loading="loading" @click="load(true)">
             刷新
           </el-button>
         </div>
@@ -193,10 +193,16 @@ const typeLabel = (t: string) =>
   t === "aliyun" ? "阿里云 DNS" : t === "cloudflare" ? "Cloudflare" : t;
 
 // 聚合：各 DNS 账户自动识别到的域名
-async function load() {
+let lastRefreshAt = 0; // 手动刷新节流：2 秒内忽略重复请求
+async function load(refresh = false) {
+  if (refresh) {
+    const now = Date.now();
+    if (now - lastRefreshAt < 2000) return;
+    lastRefreshAt = now;
+  }
   loading.value = true;
   try {
-    const disc = await getDiscoveredDomains();
+    const disc = await getDiscoveredDomains(refresh);
     discoveredErrors.value = disc.errors || [];
     list.value = (disc.data || []).map((d: DiscoveredDomain) => ({
       domain: d.domain,

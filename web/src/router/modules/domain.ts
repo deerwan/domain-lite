@@ -5,7 +5,7 @@ export default [
     component: () => import("@/views/dns-accounts/index.vue"),
     meta: {
       title: "DNS 账户",
-      icon: "ri:server-line",
+      icon: "ep/office-building",
       rank: 1
     }
   },
@@ -15,7 +15,7 @@ export default [
     component: () => import("@/views/domains/index.vue"),
     meta: {
       title: "域名列表",
-      icon: "ri:earth-line",
+      icon: "ep/document",
       rank: 2
     }
   },
@@ -25,7 +25,7 @@ export default [
     component: () => import("@/views/dns-records/index.vue"),
     meta: {
       title: "DNS 解析",
-      icon: "ri:list-check",
+      icon: "ep/link",
       rank: 3
     }
   }

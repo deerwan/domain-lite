@@ -76,6 +76,7 @@ func (h *DnsAccountHandler) Create(c *gin.Context) {
 		Ext:       strings.TrimSpace(req.Ext),
 	}
 	h.db.Create(&acc)
+	InvalidateZoneCache(uid)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": gin.H{"id": acc.ID}})
 }
 
@@ -87,6 +88,7 @@ func (h *DnsAccountHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found"})
 		return
 	}
+	InvalidateZoneCache(uid)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
 }
 

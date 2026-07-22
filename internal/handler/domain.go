@@ -49,6 +49,7 @@ type DiscoveredDomain struct {
 	ExpireAt    *time.Time `json:"expire_at"`
 	Status      string     `json:"status"`
 	WhoisManual bool       `json:"whois_manual"`
+	Privacy     bool       `json:"privacy"`
 }
 
 // collectZones 并发拉取当前用户所有 DNS 账户下的域名(zone)，
@@ -102,6 +103,49 @@ func (h *DomainHandler) collectZones(ctx context.Context, uid any) ([]Discovered
 	return out, errs
 }
 
+// ===== 聚合域名(zone)列表的 TTL 缓存 =====
+// Discover/Stats 默认命中缓存，避免每次刷新都实时调用所有 DNS 服务商 API，
+// 在账户多、域名多时减少限流风险与界面卡顿。WHOIS 同步(enrichAll)属低频操作，
+// 始终强制实时拉取以保证拿到最新域名集合。
+
+const zoneCacheTTL = 5 * time.Minute
+
+var (
+	zoneCacheMu sync.Mutex
+	zoneCache   = make(map[any]zoneCacheEntry)
+)
+
+type zoneCacheEntry struct {
+	data   []DiscoveredDomain
+	errs   []map[string]string
+	expire time.Time
+}
+
+// collectZonesCached 带 TTL 缓存的 collectZones。force=true 时跳过缓存强制实时拉取。
+func (h *DomainHandler) collectZonesCached(ctx context.Context, uid any, force bool) ([]DiscoveredDomain, []map[string]string) {
+	if !force {
+		zoneCacheMu.Lock()
+		if e, ok := zoneCache[uid]; ok && time.Now().Before(e.expire) {
+			data, errs := e.data, e.errs
+			zoneCacheMu.Unlock()
+			return data, errs
+		}
+		zoneCacheMu.Unlock()
+	}
+	data, errs := h.collectZones(ctx, uid)
+	zoneCacheMu.Lock()
+	zoneCache[uid] = zoneCacheEntry{data: data, errs: errs, expire: time.Now().Add(zoneCacheTTL)}
+	zoneCacheMu.Unlock()
+	return data, errs
+}
+
+// InvalidateZoneCache 清除指定用户的 zone 缓存，账户增删后调用，使下次 Discovery 重新实时拉取。
+func InvalidateZoneCache(uid any) {
+	zoneCacheMu.Lock()
+	delete(zoneCache, uid)
+	zoneCacheMu.Unlock()
+}
+
 // attachCache 将已 enrich 的 WHOIS 缓存(注册商/到期日/状态) 附加到聚合域名列表上。
 func (h *DomainHandler) attachCache(uid any, disc []DiscoveredDomain) {
 	var cached []model.Domain
@@ -116,6 +160,7 @@ func (h *DomainHandler) attachCache(uid any, disc []DiscoveredDomain) {
 			disc[i].ExpireAt = cd.ExpireAt
 			disc[i].Status = cd.Status
 			disc[i].WhoisManual = cd.WhoisManual
+			disc[i].Privacy = cd.Privacy
 		}
 	}
 }
@@ -123,7 +168,8 @@ func (h *DomainHandler) attachCache(uid any, disc []DiscoveredDomain) {
 // Discover 实时聚合所有 DNS 账户的域名，并附带已缓存的 WHOIS(注册商/到期日/状态)。
 func (h *DomainHandler) Discover(c *gin.Context) {
 	uid, _ := c.Get("uid")
-	disc, errs := h.collectZones(c.Request.Context(), uid)
+	force := c.Query("refresh") == "1"
+	disc, errs := h.collectZonesCached(c.Request.Context(), uid, force)
 	h.attachCache(uid, disc)
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": disc, "errors": errs})
@@ -148,7 +194,8 @@ func (h *DomainHandler) EnrichWHOIS(c *gin.Context) {
 
 // enrichAll 对所有已识别域名并发查询 WHOIS 并落库，返回统计。与 HTTP 层解耦，供定时任务复用。
 func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success, failed int, failedList []string) {
-	disc, _ := h.collectZones(ctx, uid)
+	// 同步场景强制实时拉取，保证拿到最新域名集合（含新接入账户）。
+	disc, _ := h.collectZonesCached(ctx, uid, true)
 
 	type job struct {
 		domain    string
@@ -218,6 +265,8 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 			if info.Status != "" {
 				upd["status"] = info.Status
 			}
+			// 隐私保护标记：每次同步刷新，反映当前是否启用隐私。
+			upd["privacy"] = info.Privacy
 			h.db.Model(&d).Updates(upd)
 			success++
 		}(j)
@@ -359,7 +408,8 @@ func (h *DomainHandler) runSyncForAll(ctx context.Context) {
 // Stats 返回仪表盘所需的聚合统计：域名总数、临期/已过期数量、按账户分布、临期清单。
 func (h *DomainHandler) Stats(c *gin.Context) {
 	uid, _ := c.Get("uid")
-	disc, errs := h.collectZones(c.Request.Context(), uid)
+	force := c.Query("refresh") == "1"
+	disc, errs := h.collectZonesCached(c.Request.Context(), uid, force)
 	h.attachCache(uid, disc)
 
 	threshold := h.getThreshold(uid)

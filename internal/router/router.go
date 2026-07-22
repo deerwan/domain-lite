@@ -15,6 +15,7 @@ import (
 // New 构建 Gin 引擎并注册路由。
 func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	r := gin.Default()
+	r.Use(middleware.SecurityHeaders())
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

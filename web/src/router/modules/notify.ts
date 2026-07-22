@@ -5,7 +5,7 @@ export default [
     component: () => import("@/views/notify/index.vue"),
     meta: {
       title: "通知设置",
-      icon: "ri:notification-3-line",
+      icon: "ep/bell",
       rank: 4
     }
   }

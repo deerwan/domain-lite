@@ -299,8 +299,9 @@ onMounted(load);
 <style scoped>
 .platform-panel {
   margin-bottom: 18px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  /* 适配深色模式：使用 Element Plus 主题变量，深浅色自动切换 */
+  background: var(--el-fill-color-light, #fafafa);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
 }
 
 .platform-panel :deep(.panel-item) {
@@ -308,6 +309,6 @@ onMounted(load);
 }
 
 .platform-panel :deep(.el-form-item__label) {
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
 }
 </style>

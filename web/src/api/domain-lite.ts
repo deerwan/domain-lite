@@ -54,13 +54,14 @@ export type DiscoveredDomain = {
   expire_at?: string;
   status?: string;
   whois_manual?: boolean;
+  privacy?: boolean;
 };
 
 /** 聚合当前用户所有 DNS 账户(zones) 下识别到的域名 */
-export const getDiscoveredDomains = (): Promise<
-  ApiResult<DiscoveredDomain[]>
-> => {
-  return http.get("/api/domains/discovered");
+export const getDiscoveredDomains = (
+  refresh = false
+): Promise<ApiResult<DiscoveredDomain[]>> => {
+  return http.get(`/api/domains/discovered${refresh ? "?refresh=1" : ""}`);
 };
 
 /** 手动设置某域名的 WHOIS 信息（注册商/到期日/状态），钉住后不被自动同步覆盖 */
@@ -226,8 +227,10 @@ export type StatsResult = {
   expiring_list: ExpiringItem[];
 };
 
-export const getStats = (): Promise<ApiResult<StatsResult>> => {
-  return http.get("/api/stats");
+export const getStats = (
+  refresh = false
+): Promise<ApiResult<StatsResult>> => {
+  return http.get(`/api/stats${refresh ? "?refresh=1" : ""}`);
 };
 
 // ===== 解析记录变更日志 =====

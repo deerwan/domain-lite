@@ -162,32 +162,49 @@ func (p *namecheapProvider) ListRecords(ctx context.Context, zoneID string) ([]R
 	return out, nil
 }
 
-func (p *namecheapProvider) CreateRecord(ctx context.Context, zoneID string, r Record) (string, error) {
+// setHosts 把完整记录列表整组写回（替换该域名下的全部解析记录）。
+// 注意：Namecheap 的 addHost/editHost/delHost 均为整组替换语义，单条调用会清空其它记录，
+// 因此所有写操作统一走 getHosts → 本地增删改 → setHosts 的模式，保证不丢失既有记录。
+func (p *namecheapProvider) setHosts(ctx context.Context, zoneID string, recs []Record) error {
+	if len(recs) == 0 {
+		return fmt.Errorf("namecheap setHosts: empty host list not allowed")
+	}
 	sld, tld := splitDomain(zoneID)
-	ttl := r.TTL
-	if ttl <= 0 {
-		ttl = 1800
+	extra := map[string]string{"SLD": sld, "TLD": tld}
+	for i, r := range recs {
+		n := strconv.Itoa(i + 1)
+		ttl := r.TTL
+		if ttl <= 0 {
+			ttl = 1800
+		}
+		extra["HostName"+n] = r.Name
+		extra["RecordType"+n] = r.Type
+		extra["Address"+n] = r.Content
+		extra["TTL"+n] = strconv.Itoa(ttl)
+		if strings.EqualFold(r.Type, "MX") && r.Priority > 0 {
+			extra["MXPref"+n] = strconv.Itoa(r.Priority)
+		}
 	}
-	extra := map[string]string{
-		"SLD":         sld,
-		"TLD":         tld,
-		"HostName1":   r.Name,
-		"RecordType1": r.Type,
-		"Address1":    r.Content,
-		"TTL1":        strconv.Itoa(ttl),
-	}
-	if r.Priority > 0 {
-		extra["MXPref1"] = strconv.Itoa(r.Priority)
-	}
-	if _, err := p.call(ctx, "namecheap.domains.dns.addHost", extra); err != nil {
-		return "", err
-	}
-	// 重新列出以拿到新记录的 HostId（addHost 不直接返回稳定 ID）
+	_, err := p.call(ctx, "namecheap.domains.dns.setHosts", extra)
+	return err
+}
+
+func (p *namecheapProvider) CreateRecord(ctx context.Context, zoneID string, r Record) (string, error) {
+	// 先取全量，追加新记录后再整组写回，避免 addHost 替换语义清空其它记录。
 	recs, err := p.ListRecords(ctx, zoneID)
 	if err != nil {
 		return "", err
 	}
-	for _, rec := range recs {
+	recs = append(recs, r)
+	if err := p.setHosts(ctx, zoneID, recs); err != nil {
+		return "", err
+	}
+	// 重新列出以拿到新记录的 HostId（setHosts 不直接返回稳定 ID）
+	updated, err := p.ListRecords(ctx, zoneID)
+	if err != nil {
+		return "", err
+	}
+	for _, rec := range updated {
 		if rec.Name == r.Name && rec.Type == r.Type && rec.Content == r.Content {
 			return rec.ID, nil
 		}
@@ -196,30 +213,46 @@ func (p *namecheapProvider) CreateRecord(ctx context.Context, zoneID string, r R
 }
 
 func (p *namecheapProvider) UpdateRecord(ctx context.Context, zoneID string, recordID string, r Record) error {
-	sld, tld := splitDomain(zoneID)
-	ttl := r.TTL
-	if ttl <= 0 {
-		ttl = 1800
+	recs, err := p.ListRecords(ctx, zoneID)
+	if err != nil {
+		return err
 	}
-	extra := map[string]string{
-		"SLD":        sld,
-		"TLD":        tld,
-		"HostId":     recordID,
-		"HostName":   r.Name,
-		"RecordType": r.Type,
-		"Address":    r.Content,
-		"TTL":        strconv.Itoa(ttl),
+	found := false
+	for i := range recs {
+		if recs[i].ID == recordID {
+			recs[i] = r
+			found = true
+			break
+		}
 	}
-	if r.Priority > 0 {
-		extra["MXPref"] = strconv.Itoa(r.Priority)
+	if !found {
+		return fmt.Errorf("namecheap update: record %s not found", recordID)
 	}
-	_, err := p.call(ctx, "namecheap.domains.dns.editHost", extra)
-	return err
+	return p.setHosts(ctx, zoneID, recs)
 }
 
 func (p *namecheapProvider) DeleteRecord(ctx context.Context, zoneID string, recordID string) error {
-	sld, tld := splitDomain(zoneID)
-	extra := map[string]string{"SLD": sld, "TLD": tld, "HostId": recordID}
-	_, err := p.call(ctx, "namecheap.domains.dns.delHost", extra)
-	return err
+	recs, err := p.ListRecords(ctx, zoneID)
+	if err != nil {
+		return err
+	}
+	remaining := make([]Record, 0, len(recs))
+	deleted := false
+	for _, rec := range recs {
+		if rec.ID == recordID {
+			deleted = true
+			continue
+		}
+		remaining = append(remaining, rec)
+	}
+	if !deleted {
+		return fmt.Errorf("namecheap delete: record %s not found", recordID)
+	}
+	// 删到最后一条时 setHosts 不允许空列表，改用 delHost 真正删除单条记录。
+	if len(remaining) == 0 {
+		sld, tld := splitDomain(zoneID)
+		_, err := p.call(ctx, "namecheap.domains.dns.delHost", map[string]string{"SLD": sld, "TLD": tld, "HostId": recordID})
+		return err
+	}
+	return p.setHosts(ctx, zoneID, remaining)
 }

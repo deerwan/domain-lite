@@ -6,7 +6,7 @@
         <el-button :loading="syncing" @click="syncNow"
           >立即同步 WHOIS</el-button
         >
-        <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button :loading="loading" @click="load(true)">刷新</el-button>
       </div>
     </div>
 
@@ -116,10 +116,16 @@ const stats = reactive<StatsResult>({
   expiring_list: []
 });
 
-async function load() {
+let lastRefreshAt = 0; // 手动刷新节流：2 秒内忽略重复请求，避免连点狂打服务商 API
+async function load(refresh = false) {
+  if (refresh) {
+    const now = Date.now();
+    if (now - lastRefreshAt < 2000) return;
+    lastRefreshAt = now;
+  }
   loading.value = true;
   try {
-    const res: any = await getStats();
+    const res: any = await getStats(refresh);
     if (res.code === 0 && res.data) {
       Object.assign(stats, res.data);
     }

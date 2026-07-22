@@ -5,7 +5,7 @@ export default [
     component: () => import("@/views/record-log/index.vue"),
     meta: {
       title: "变更日志",
-      icon: "ri:history-line",
+      icon: "ep/clock",
       rank: 6
     }
   }

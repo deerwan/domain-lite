@@ -15,7 +15,7 @@
         <el-table-column prop="name" label="备注名" />
         <el-table-column prop="access_key" label="AccessKey(脱敏)" />
         <el-table-column prop="created_at" label="创建时间" />
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="260">
           <template #default="{ row }">
             <el-button type="primary" link @click="testConn(row)"
               >测试</el-button

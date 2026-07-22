@@ -83,7 +83,7 @@
             <span v-else class="text-gray-400">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="180">
           <template #default="{ row }">
             <el-button type="primary" link @click="manage(row)">
               管理解析

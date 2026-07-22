@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-3xl">
+  <div>
     <el-card v-loading="loading">
       <div class="flex justify-between items-center mb-4">
         <span class="text-lg font-medium">通知设置</span>

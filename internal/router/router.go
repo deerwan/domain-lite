@@ -60,6 +60,9 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		authed.GET("/stats", domainH.Stats)
 		// 对所有已识别域名查询 WHOIS，填充注册商/到期日/状态
 		authed.POST("/domains/enrich-whois", domainH.EnrichWHOIS)
+		// 手动设置/清除某域名的 WHOIS 信息（识别不到时兜底，钉住后不被自动同步覆盖）
+		authed.PUT("/domains/whois", domainH.SetWhois)
+		authed.DELETE("/domains/whois", domainH.ClearWhois)
 	}
 
 	// 前端静态资源（SPA）。放在最后，避免覆盖 API 路由。

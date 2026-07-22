@@ -50,8 +50,18 @@
           min-width="160"
           show-overflow-tooltip
         />
-        <el-table-column prop="registrar" label="注册商" min-width="150">
-          <template #default="{ row }">{{ row.registrar || "—" }}</template>
+        <el-table-column prop="registrar" label="注册商" min-width="170">
+          <template #default="{ row }">
+            {{ row.registrar || "—" }}
+            <el-tag
+              v-if="row.whois_manual"
+              size="small"
+              type="info"
+              class="ml-1"
+            >
+              手动
+            </el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="到期日" min-width="200">
           <template #default="{ row }">
@@ -83,7 +93,7 @@
             <span v-else class="text-gray-400">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180">
+        <el-table-column label="操作" width="280">
           <template #default="{ row }">
             <el-button type="primary" link @click="manage(row)">
               管理解析
@@ -96,20 +106,79 @@
             >
               续费
             </el-button>
+            <el-button type="warning" link @click="openManual(row)">
+              {{ row.whois_manual ? "编辑" : "手动设置" }}
+            </el-button>
+            <el-button
+              v-if="row.whois_manual"
+              type="info"
+              link
+              @click="restoreAuto(row)"
+            >
+              恢复自动
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      v-model="manualVisible"
+      title="手动设置到期信息"
+      width="460px"
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        class="mb-3"
+        title="保存后该域名将被钉住，自动刷新与后台同步不再覆盖这些值，可随时「恢复自动」。"
+      />
+      <el-form label-width="80px">
+        <el-form-item label="域名">
+          <el-input :model-value="manualForm.domain" disabled />
+        </el-form-item>
+        <el-form-item label="注册商">
+          <el-input
+            v-model="manualForm.registrar"
+            placeholder="如 GoDaddy、阿里云"
+          />
+        </el-form-item>
+        <el-form-item label="到期日">
+          <el-date-picker
+            v-model="manualForm.expire_at"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择到期日"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-input
+            v-model="manualForm.status"
+            placeholder="如 ok、clientHold"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualVisible = false">取消</el-button>
+        <el-button type="primary" :loading="manualSaving" @click="saveManual">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   getDiscoveredDomains,
   enrichDomainsWhois,
+  setDomainWhois,
+  clearDomainWhois,
   type DiscoveredDomain
 } from "@/api/domain-lite";
 import { registrarRenewal } from "@/utils/registrar";
@@ -137,7 +206,8 @@ async function load() {
       zone_id: d.zone_id,
       registrar: d.registrar,
       expire_at: d.expire_at,
-      status: d.status
+      status: d.status,
+      whois_manual: d.whois_manual
     }));
   } catch (e: any) {
     const detail = e?.response?.data?.message || e?.message || "加载失败";
@@ -195,6 +265,72 @@ function statusType(s: string): any {
     return "danger";
   if (low.includes("ok") || low.includes("active")) return "success";
   return "warning";
+}
+
+// ===== 手动设置 WHOIS 信息 =====
+const manualVisible = ref(false);
+const manualSaving = ref(false);
+const manualForm = reactive({
+  domain: "",
+  dns_account_id: 0,
+  registrar: "",
+  expire_at: "" as string | null,
+  status: ""
+});
+
+function openManual(row: any) {
+  manualForm.domain = row.domain;
+  manualForm.dns_account_id = row.account_id;
+  manualForm.registrar = row.registrar || "";
+  manualForm.expire_at = row.expire_at ? row.expire_at.slice(0, 10) : "";
+  manualForm.status = row.status || "";
+  manualVisible.value = true;
+}
+
+async function saveManual() {
+  manualSaving.value = true;
+  try {
+    await setDomainWhois({
+      domain: manualForm.domain,
+      dns_account_id: manualForm.dns_account_id,
+      registrar: manualForm.registrar,
+      expire_at: manualForm.expire_at
+        ? new Date(manualForm.expire_at).toISOString()
+        : null,
+      status: manualForm.status
+    });
+    ElMessage.success("已保存并钉住");
+    manualVisible.value = false;
+    await load();
+  } catch (e: any) {
+    const detail = e?.response?.data?.message || e?.message || "保存失败";
+    ElMessage.error(`保存失败：${detail}`);
+  } finally {
+    manualSaving.value = false;
+  }
+}
+
+async function restoreAuto(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定恢复「${row.domain}」的自动同步？下次刷新将以真实 WHOIS 为准。`,
+      "恢复自动",
+      { type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await clearDomainWhois({
+      domain: row.domain,
+      dns_account_id: row.account_id
+    });
+    ElMessage.success("已恢复自动");
+    await load();
+  } catch (e: any) {
+    const detail = e?.response?.data?.message || e?.message || "操作失败";
+    ElMessage.error(`操作失败：${detail}`);
+  }
 }
 
 // 跳转到解析记录页并自动选中对应账户与域名

@@ -57,6 +57,14 @@
         description="请确认 Cloudflare API Token 拥有 Zone · DNS · Read 权限，且「Zone Resources」作用域包含你的域名（建议设为 All zones）。也可在终端用 curl 验证：curl -H 'Authorization: Bearer <你的token>' https://api.cloudflare.com/client/v4/zones"
       />
 
+      <el-alert
+        v-else-if="!selectedZone"
+        type="info"
+        :closable="false"
+        class="mb-3"
+        title="请选择域名 / Zone 以查看并管理其解析记录。"
+      />
+
       <el-table
         v-else
         v-loading="loadingRecords"

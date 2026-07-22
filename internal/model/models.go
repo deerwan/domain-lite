@@ -35,6 +35,9 @@ type Domain struct {
 	Registrar string
 	ExpireAt  *time.Time
 	Status    string
+	// WhoisManual 为 true 时，该行的 WHOIS 字段由用户手动钉住，
+	// 自动同步(enrichAll)不再覆盖，直到用户「恢复自动」。
+	WhoisManual bool `json:"whois_manual"`
 	// 临期通知去重：最近一次发送提醒的时间
 	LastNotifiedAt *time.Time
 	// DNS 解析缓存（JSON 字符串）

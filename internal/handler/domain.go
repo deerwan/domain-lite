@@ -48,6 +48,7 @@ type DiscoveredDomain struct {
 	Registrar   string     `json:"registrar"`
 	ExpireAt    *time.Time `json:"expire_at"`
 	Status      string     `json:"status"`
+	WhoisManual bool       `json:"whois_manual"`
 }
 
 // collectZones 并发拉取当前用户所有 DNS 账户下的域名(zone)，
@@ -114,6 +115,7 @@ func (h *DomainHandler) attachCache(uid any, disc []DiscoveredDomain) {
 			disc[i].Registrar = cd.Registrar
 			disc[i].ExpireAt = cd.ExpireAt
 			disc[i].Status = cd.Status
+			disc[i].WhoisManual = cd.WhoisManual
 		}
 	}
 }
@@ -196,13 +198,27 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 			d.Domain = j.domain
 			h.db.Where("user_id = ? AND domain = ? AND dns_account_id = ?", uid, j.domain, j.accountID).
 				FirstOrCreate(&d)
-			h.db.Model(&d).Updates(map[string]any{
+			// 强策略：手动钉住的行整行跳过，WHOIS 结果一律不写（含 last_check）。
+			if d.WhoisManual {
+				success++
+				return
+			}
+			// 空值守卫：WHOIS 可能查通但解析不出某字段，
+			// 只写非空字段，避免把库里已有的正确值覆盖成空。
+			upd := map[string]any{
 				"zone_id":    j.zoneID,
-				"registrar":  info.Registrar,
-				"expire_at":  info.ExpireAt,
-				"status":     info.Status,
 				"last_check": time.Now(),
-			})
+			}
+			if info.Registrar != "" {
+				upd["registrar"] = info.Registrar
+			}
+			if info.ExpireAt != nil {
+				upd["expire_at"] = info.ExpireAt
+			}
+			if info.Status != "" {
+				upd["status"] = info.Status
+			}
+			h.db.Model(&d).Updates(upd)
 			success++
 		}(j)
 	}
@@ -436,6 +452,60 @@ func (h *DomainHandler) Create(c *gin.Context) {
 func (h *DomainHandler) Delete(c *gin.Context) {
 	uid, _ := c.Get("uid")
 	res := h.db.Where("user_id = ? AND id = ?", uid, c.Param("id")).Delete(&model.Domain{})
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
+}
+
+// whoisManualReq 手动设置/清除 WHOIS 信息的请求体，按「域名 + DNS 账户」定位缓存行。
+type whoisManualReq struct {
+	Domain       string     `json:"domain"`
+	DnsAccountID uint       `json:"dns_account_id"`
+	Registrar    string     `json:"registrar"`
+	ExpireAt     *time.Time `json:"expire_at"`
+	Status       string     `json:"status"`
+}
+
+// SetWhois 手动设置某域名的注册商/到期日/状态，并钉住(whois_manual=true)，
+// 之后自动同步不再覆盖，直到用户「恢复自动」。用于 WHOIS 识别不到信息的域名兜底。
+func (h *DomainHandler) SetWhois(c *gin.Context) {
+	uid, _ := c.Get("uid")
+	var req whoisManualReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid params"})
+		return
+	}
+	var d model.Domain
+	if u, ok := uid.(uint); ok {
+		d.UserID = u
+	}
+	d.Domain = req.Domain
+	d.DnsAccountID = req.DnsAccountID
+	h.db.Where("user_id = ? AND domain = ? AND dns_account_id = ?", uid, req.Domain, req.DnsAccountID).
+		FirstOrCreate(&d)
+	h.db.Model(&d).Updates(map[string]any{
+		"registrar":    req.Registrar,
+		"expire_at":    req.ExpireAt,
+		"status":       req.Status,
+		"whois_manual": true,
+		"last_check":   time.Now(),
+	})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
+}
+
+// ClearWhois 取消手动钉住(whois_manual=false)，让下一次自动同步重新以真实 WHOIS 为准。
+func (h *DomainHandler) ClearWhois(c *gin.Context) {
+	uid, _ := c.Get("uid")
+	var req whoisManualReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "invalid params"})
+		return
+	}
+	res := h.db.Model(&model.Domain{}).
+		Where("user_id = ? AND domain = ? AND dns_account_id = ?", uid, req.Domain, req.DnsAccountID).
+		Update("whois_manual", false)
 	if res.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found"})
 		return

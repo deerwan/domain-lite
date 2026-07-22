@@ -14,7 +14,7 @@ export default [
     name: "Domains",
     component: () => import("@/views/domains/index.vue"),
     meta: {
-      title: "域名集合",
+      title: "域名列表",
       icon: "ri:earth-line",
       rank: 2
     }

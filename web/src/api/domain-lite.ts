@@ -53,6 +53,7 @@ export type DiscoveredDomain = {
   registrar?: string;
   expire_at?: string;
   status?: string;
+  whois_manual?: boolean;
 };
 
 /** 聚合当前用户所有 DNS 账户(zones) 下识别到的域名 */
@@ -60,6 +61,25 @@ export const getDiscoveredDomains = (): Promise<
   ApiResult<DiscoveredDomain[]>
 > => {
   return http.get("/api/domains/discovered");
+};
+
+/** 手动设置某域名的 WHOIS 信息（注册商/到期日/状态），钉住后不被自动同步覆盖 */
+export const setDomainWhois = (data: {
+  domain: string;
+  dns_account_id: number;
+  registrar?: string;
+  expire_at?: string | null;
+  status?: string;
+}) => {
+  return http.request("put", "/api/domains/whois", { data });
+};
+
+/** 取消手动钉住，恢复自动 WHOIS 同步 */
+export const clearDomainWhois = (data: {
+  domain: string;
+  dns_account_id: number;
+}) => {
+  return http.request("delete", "/api/domains/whois", { data });
 };
 
 /** 对所有已识别域名查询 WHOIS，填充注册商/到期日/状态 */

@@ -50,6 +50,9 @@ type DiscoveredDomain struct {
 	Status      string     `json:"status"`
 	WhoisManual bool       `json:"whois_manual"`
 	Privacy     bool       `json:"privacy"`
+	SyncStatus  string     `json:"sync_status"`
+	SyncError   string     `json:"sync_error"`
+	LastCheck   *time.Time `json:"last_check"`
 }
 
 // collectZones 并发拉取当前用户所有 DNS 账户下的域名(zone)，
@@ -161,6 +164,9 @@ func (h *DomainHandler) attachCache(uid any, disc []DiscoveredDomain) {
 			disc[i].Status = cd.Status
 			disc[i].WhoisManual = cd.WhoisManual
 			disc[i].Privacy = cd.Privacy
+			disc[i].SyncStatus = cd.SyncStatus
+			disc[i].SyncError = cd.SyncError
+			disc[i].LastCheck = cd.LastCheck
 		}
 	}
 }
@@ -178,7 +184,11 @@ func (h *DomainHandler) Discover(c *gin.Context) {
 // EnrichWHOIS 对所有已识别域名查询 WHOIS，填充注册商/到期日/状态，并触发临期提醒。
 func (h *DomainHandler) EnrichWHOIS(c *gin.Context) {
 	uid, _ := c.Get("uid")
-	total, success, failed, failedList := h.enrichAll(c.Request.Context(), uid)
+	// 使用独立于 HTTP 请求的 context：即便前端因超时报错提前断开，
+	// 后端批量 WHOIS 仍会跑完并落库，避免刷新不完全。整体仍受 90s 上限约束。
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
+	total, success, failed, failedList := h.enrichAll(ctx, uid)
 	h.notifyExpiring(uid)
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
@@ -217,7 +227,7 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 		mu sync.Mutex
 		wg sync.WaitGroup
 	)
-	sem := make(chan struct{}, 5)
+	sem := make(chan struct{}, 10)
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
@@ -233,6 +243,21 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 			if err != nil {
 				failed++
 				failedList = append(failedList, j.domain+": "+err.Error())
+				// 记录失败状态，便于前端标记「同步失败」。
+				var d model.Domain
+				if u, ok := uid.(uint); ok {
+					d.UserID = u
+				}
+				d.DnsAccountID = j.accountID
+				d.Domain = j.domain
+				h.db.Where("user_id = ? AND domain = ? AND dns_account_id = ?", uid, j.domain, j.accountID).
+					FirstOrCreate(&d)
+				h.db.Model(&d).Updates(map[string]any{
+					"zone_id":     j.zoneID,
+					"last_check":  time.Now(),
+					"sync_status": "failed",
+					"sync_error":  err.Error(),
+				})
 				return
 			}
 			var d model.Domain
@@ -247,6 +272,12 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 				FirstOrCreate(&d)
 			// 强策略：手动钉住的行整行跳过，WHOIS 结果一律不写（含 last_check）。
 			if d.WhoisManual {
+				h.db.Model(&d).Updates(map[string]any{
+					"zone_id":     j.zoneID,
+					"last_check":  time.Now(),
+					"sync_status": "manual",
+					"sync_error":  "",
+				})
 				success++
 				return
 			}
@@ -267,6 +298,13 @@ func (h *DomainHandler) enrichAll(ctx context.Context, uid any) (total, success,
 			}
 			// 隐私保护标记：每次同步刷新，反映当前是否启用隐私。
 			upd["privacy"] = info.Privacy
+			// 同步状态：查通但注册商与到期日均为空，视为「未同步到数据」。
+			if info.Registrar == "" && info.ExpireAt == nil {
+				upd["sync_status"] = "empty"
+			} else {
+				upd["sync_status"] = "ok"
+			}
+			upd["sync_error"] = ""
 			h.db.Model(&d).Updates(upd)
 			success++
 		}(j)

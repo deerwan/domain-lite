@@ -55,6 +55,9 @@ export type DiscoveredDomain = {
   status?: string;
   whois_manual?: boolean;
   privacy?: boolean;
+  sync_status?: string;
+  sync_error?: string;
+  last_check?: string;
 };
 
 /** 聚合当前用户所有 DNS 账户(zones) 下识别到的域名 */
@@ -91,7 +94,9 @@ export type EnrichResult = {
   failedList: string[];
 };
 export const enrichDomainsWhois = (): Promise<ApiResult<EnrichResult>> => {
-  return http.post("/api/domains/enrich-whois", {});
+  // 批量 WHOIS 刷新是低频重操作（逐域名 43 端口 + RDAP，可能逐级回退），
+  // 单域名查询可能很慢，单独放宽超时以避免触发全局 10s 限制。
+  return http.post("/api/domains/enrich-whois", {}, { timeout: 120000 });
 };
 
 // ===== DNS 服务商侧：域名(zones) 与 解析记录(records) =====

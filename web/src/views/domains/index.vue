@@ -93,6 +93,39 @@
             <span v-else class="text-gray-400">—</span>
           </template>
         </el-table-column>
+        <el-table-column label="同步" min-width="150">
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="row.sync_error"
+              :content="`失败原因：${row.sync_error}`"
+              placement="top"
+            >
+              <el-tag size="small" type="danger">同步失败</el-tag>
+            </el-tooltip>
+            <el-tag
+              v-else-if="row.whois_manual"
+              size="small"
+              type="info"
+            >
+              手动钉住
+            </el-tag>
+            <el-tag
+              v-else-if="row.sync_status === 'empty'"
+              size="small"
+              type="warning"
+            >
+              未同步到数据
+            </el-tag>
+            <el-tag
+              v-else-if="row.sync_status === 'ok'"
+              size="small"
+              type="success"
+            >
+              已同步
+            </el-tag>
+            <el-tag v-else size="small" type="info">未同步</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="280">
           <template #default="{ row }">
             <el-button type="primary" link @click="manage(row)">
@@ -213,7 +246,10 @@ async function load(refresh = false) {
       registrar: d.registrar,
       expire_at: d.expire_at,
       status: d.status,
-      whois_manual: d.whois_manual
+      whois_manual: d.whois_manual,
+      sync_status: d.sync_status,
+      sync_error: d.sync_error,
+      last_check: d.last_check
     }));
   } catch (e: any) {
     const detail = e?.response?.data?.message || e?.message || "加载失败";

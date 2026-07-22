@@ -37,6 +37,10 @@ type Domain struct {
 	Status    string
 	// Privacy 域名是否启用隐私保护(注册人信息被 Redact)。
 	Privacy bool `json:"privacy"`
+	// SyncStatus 最近一次 WHOIS 同步结果：ok=成功 / failed=查询失败 / empty=查通但无数据 / manual=手动钉住。
+	SyncStatus string `json:"sync_status"`
+	// SyncError 同步失败时的错误信息（用于前端 tooltip）。
+	SyncError string `json:"-"`
 	// WhoisManual 为 true 时，该行的 WHOIS 字段由用户手动钉住，
 	// 自动同步(enrichAll)不再覆盖，直到用户「恢复自动」。
 	WhoisManual bool `json:"whois_manual"`
